@@ -1,5 +1,5 @@
 (ns musings.bheap
-  )
+  (:import (java.util ArrayList)))
 
 (defprotocol BHeapProtocol
   (insert [heap element]
@@ -15,42 +15,20 @@
     "Update the specified element in the heap based on the updater fn
      and maintain heap property")
 
+  (size [heap]
+    "Returns the size of the underlying ArrayList")
+
   (to-vec [heap]
     "Returns the backing array as a vector"))
 
 (defn place-leftmost! [arr elem]
-  (let [n (alength arr)]
-    (loop [i 0]
-      #_(cond
-        (>= i n) :full
-        (nil? (aget arr i)) (aset arr i elem)
-
-        (and (< (* i 2) n)
-             (nil? (aget arr (* i 2))))
-        (aset arr (* i 2) elem)
-
-        (and (< (inc (* i 2)) n)
-             (nil? (aget arr (inc (* i 2)))))
-        (aset arr (inc (* i 2)) elem)
-
-        :else (recur ))
-      (cond
-          (> i n)             :full
-          (nil? (aget arr i)) (do (aset arr i elem)
-                                  i)
-          :else               (recur (inc i))))))
-
-(defn get-last [arr]
-  (let [n (alength arr)]
-    (loop [i (dec n)]
-      (if (nil? (aget arr i))
-        (recur (dec i))
-        i))))
+  (.add arr elem)
+  (dec (.size arr)))
 
 (defn aswap! [arr i j]
-  (let [a-i (aget arr i)]
-    (aset arr i (aget arr j))
-    (aset arr j a-i)))
+  (let [a-i (.get arr i)]
+    (.set arr i (.get arr j))
+    (.set arr j a-i)))
 
 (defn max-comp [a b]
   (cond
@@ -59,59 +37,57 @@
     :else   1))
 
 (defn find-elem [arr elem]
-  (let [n (alength arr)]
+  (let [n (.size arr)]
     (loop [i 0]
       (cond
         (= i n)               nil
-        (= (aget arr i) elem) i
+        (= (.get arr i) elem) i
         :else                 (recur (inc i))))))
 
-(deftype BinHeap [compare-fn arr]
+(deftype BinHeap [compare-fn ^ArrayList arr]
   BHeapProtocol
 
   (insert [this element]
     (let [ind (place-leftmost! arr element)]
-      (if (= ind :full)
-        (throw (RuntimeException. "Heap full"))
-        (loop [i ind]
-          (let [parent-i (quot i 2)
-                parent   (aget arr parent-i)]
-            (when (< (compare-fn element parent) 0)
-              (aswap! arr i parent-i)
-              (recur parent-i)))))))
+      (loop [i ind]
+        (let [parent-i (quot (dec i) 2)
+              parent   (.get arr parent-i)]
+          (when (< (compare-fn element parent) 0)
+            (aswap! arr i parent-i)
+            (recur parent-i))))))
 
   (extract [this]
-    (let [element (aget arr 0)]
-      (if (nil? element)
-        (throw (RuntimeException. "Heap empty"))
+    (if (.isEmpty arr)
+      (throw (RuntimeException. "Heap empty"))
+      (let [element (.get arr 0)
+            last-i  (dec (.size arr))]
         ;; swap root with last element
-        (let [last-i (get-last arr)]
-          (aset arr 0 nil)
-          (aswap! arr 0 last-i)
-          ;; preserve heap property for root recursively
-          (loop [root (aget arr 0)]
-            (let [left-result (compare-fn root (aget arr 1))]
-              (cond
-                (>= left-result 0) (do (aswap! arr 0 1) (recur (aget arr 0)))
-                :else
-                (let [right-result (compare-fn root (aget arr 2))]
-                  (when (>= right-result 0)
-                    (aswap! arr 0 2)
-                    (recur (aget arr 0)))))))))
-      element))
+        (aswap! arr 0 last-i)
+        (.remove arr last-i)
+        ;; preserve heap property for root recursively
+        (loop [root (.get arr 0)]
+          (let [left-result (compare-fn root (.get arr 1))]
+            (cond
+              (>= left-result 0) (do (aswap! arr 0 1) (recur (.get arr 0)))
+              :else
+              (let [right-result (compare-fn root (.get arr 2))]
+                (when (>= right-result 0)
+                  (aswap! arr 0 2)
+                  (recur (.get arr 0)))))))
+        element)))
 
   (delete [this element]
     (let [elem-i (find-elem arr element)
-          last-i (get-last arr)]
+          last-i (dec (.size arr))]
       ;; swap found element with the last
       (aswap! arr elem-i last-i)
-      (aset arr last-i nil)
+      (.remove arr last-i)
       (when (not= elem-i last-i)
         ;; check if swapped element violates heap property with parent
         (loop [pos      elem-i
                parent-i (quot (dec elem-i) 2)]
-          (let [size   (alength arr)
-                result (compare-fn (aget arr pos) (aget arr parent-i))]
+          (let [size   (.size arr)
+                result (compare-fn (.get arr pos) (.get arr parent-i))]
             (if (< result 0)
               ;; if yes swap and recur from there
               (do
@@ -123,24 +99,26 @@
               (let [l-child (inc (* pos 2))
                     r-child (inc l-child)]
                 (when (< l-child size)
-                  (if (and (some? (aget arr l-child))
-                           (pos? (compare-fn (aget arr elem-i)
-                                             (aget arr l-child))))
+                  (if (and (some? (.get arr l-child))
+                           (pos? (compare-fn (.get arr elem-i)
+                                             (.get arr l-child))))
                     (do (aswap! arr elem-i l-child)
                         (recur l-child pos))
                     (when (and (< r-child size)
-                               (some? (aget arr r-child))
-                               (pos? (compare-fn (aget arr elem-i)
-                                                 (aget arr r-child))))
+                               (some? (.get arr r-child))
+                               (pos? (compare-fn (.get arr elem-i)
+                                                 (.get arr r-child))))
                       (recur r-child pos)))))))))))
 
   (update-elem [this element updater] this)
 
-  (to-vec [this] (vec arr)))
+  (to-vec [this] (vec arr))
+
+  (size [this] (.size arr)))
 
 
 (defn create-bin-heap [comparator n]
-  (BinHeap. comparator (make-array Object n)))
+  (BinHeap. comparator (ArrayList. n)))
 
 
 (defn is-leftmost-filled? [v]
