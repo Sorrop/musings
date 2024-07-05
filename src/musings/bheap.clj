@@ -21,11 +21,11 @@
   (to-vec [heap]
     "Returns the backing array as a vector"))
 
-(defn place-leftmost! [arr elem]
+(defn place-leftmost! [^ArrayList arr elem]
   (.add arr elem)
   (dec (.size arr)))
 
-(defn aswap! [arr i j]
+(defn aswap! [^ArrayList arr i j]
   (let [a-i (.get arr i)]
     (.set arr i (.get arr j))
     (.set arr j a-i)))
@@ -36,7 +36,7 @@
     (< a b) (- 1)
     :else   1))
 
-(defn find-elem [arr elem]
+(defn find-elem [^ArrayList arr elem]
   (let [n (.size arr)]
     (loop [i 0]
       (cond
@@ -47,7 +47,7 @@
 (deftype BinHeap [compare-fn ^ArrayList arr]
   BHeapProtocol
 
-  (insert [this element]
+  (insert [_this element]
     (let [ind (place-leftmost! arr element)]
       (loop [i ind]
         (let [parent-i (quot (dec i) 2)
@@ -56,9 +56,8 @@
             (aswap! arr i parent-i)
             (recur parent-i))))))
 
-  (extract [this]
-    (if (.isEmpty arr)
-      (throw (RuntimeException. "Heap empty"))
+  (extract [_this]
+    (when-not (.isEmpty arr)
       (let [element (.get arr 0)
             last-i  (dec (.size arr))]
         ;; swap root with last element
@@ -76,45 +75,44 @@
                   (recur (.get arr 0)))))))
         element)))
 
-  (delete [this element]
-    (let [elem-i (find-elem arr element)
-          last-i (dec (.size arr))]
+  (delete [_this element]
+    (when-not (.isEmpty arr)
+      (let [elem-i (find-elem arr element)
+            last-i (dec (.size arr))]
       ;; swap found element with the last
-      (aswap! arr elem-i last-i)
-      (.remove arr last-i)
-      (when (not= elem-i last-i)
-        ;; check if swapped element violates heap property with parent
-        (loop [pos      elem-i
-               parent-i (quot (dec elem-i) 2)]
-          (let [size   (.size arr)
-                result (compare-fn (.get arr pos) (.get arr parent-i))]
-            (if (< result 0)
-              ;; if yes swap and recur from there
-              (do
-                (aswap! arr pos parent-i)
-                (recur parent-i (quot (dec parent-i) 2)))
+        (aswap! arr elem-i last-i)
+        (.remove arr last-i)
+        (let [size (.size arr)]
+          (when (not= elem-i last-i)
+          ;; check if swapped element violates heap property with parent
+            (loop [pos      elem-i
+                   parent-i (quot (dec elem-i) 2)]
+              (let [result (compare-fn (.get arr pos) (.get arr parent-i))]
+                (if (< result 0)
+                ;; if yes swap and recur from there
+                  (do
+                    (aswap! arr pos parent-i)
+                    (recur parent-i (quot (dec parent-i) 2)))
 
-              ;; else check if swapped element violates heap property
-              ;; with children and recur
-              (let [l-child (inc (* pos 2))
-                    r-child (inc l-child)]
-                (when (< l-child size)
-                  (if (and (some? (.get arr l-child))
-                           (pos? (compare-fn (.get arr elem-i)
-                                             (.get arr l-child))))
-                    (do (aswap! arr elem-i l-child)
-                        (recur l-child pos))
-                    (when (and (< r-child size)
-                               (some? (.get arr r-child))
-                               (pos? (compare-fn (.get arr elem-i)
-                                                 (.get arr r-child))))
-                      (recur r-child pos)))))))))))
+                ;; else check if swapped element violates heap property
+                ;; with children and recur
+                  (let [l-child (inc (* pos 2))
+                        r-child (inc l-child)]
+                    (if (and (< l-child size)
+                             (pos? (compare-fn (.get arr elem-i)
+                                               (.get arr l-child))))
+                      (do (aswap! arr elem-i l-child)
+                          (recur l-child pos))
+                      (when (and (< r-child size)
+                                 (pos? (compare-fn (.get arr elem-i)
+                                                   (.get arr r-child))))
+                        (recur r-child pos))))))))))))
 
-  (update-elem [this element updater] this)
+  (update-elem [this _element _updater] this)
 
-  (to-vec [this] (vec arr))
+  (to-vec [_this] (vec arr))
 
-  (size [this] (.size arr)))
+  (size [_this] (.size arr)))
 
 
 (defn create-bin-heap [comparator n]
