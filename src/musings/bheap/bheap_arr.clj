@@ -1,25 +1,6 @@
-(ns musings.bheap
+(ns musings.bheap.bheap-arr
+  (:require [musings.bheap.protocol :as prot])
   (:import (java.util ArrayList)))
-
-(defprotocol BHeapProtocol
-  (insert [heap element]
-    "Inserts element to heap")
-
-  (extract [heap]
-    "Extracts the root of the heap")
-
-  (delete [heap element]
-    "Delete arbitrary element from heap")
-
-  (update-elem [heap element updater]
-    "Update the specified element in the heap based on the updater fn
-     and maintain heap property")
-
-  (size [heap]
-    "Returns the size of the underlying ArrayList")
-
-  (to-vec [heap]
-    "Returns the backing array as a vector"))
 
 (defn place-leftmost! [^ArrayList arr elem]
   (.add arr elem)
@@ -71,7 +52,7 @@
                 (recur r-child pos)))))))))
 
 (deftype BinHeap [compare-fn ^ArrayList arr]
-  BHeapProtocol
+  prot/BHeapProtocol
 
   (insert [_this element]
     (let [ind (place-leftmost! arr element)]
@@ -139,7 +120,7 @@
 
 (defn is-heap? [{:keys [heap compare-fn]
                  :or {compare-fn compare}}]
-  (let [v (to-vec heap)]
+  (let [v (prot/to-vec heap)]
     (and (is-leftmost-filled? v)
          (let [fv (filter some? v)]
            (loop [i (dec (count fv))]
@@ -152,45 +133,27 @@
                  (zero? i) true
                  :else     (recur (dec i)))))))))
 
-
 (defn test-run []
   (let [heap (create-bin-heap {:n 7})]
     (doseq [i [100 19 36 17 0]]
-      (insert heap i))
-    (println (to-vec heap))
-    (extract heap)
-    (println (to-vec heap))
-    (extract heap)
-    (println (to-vec heap))
+      (prot/insert heap i))
+    (println (prot/to-vec heap))
+    (prot/extract heap)
+    (println (prot/to-vec heap))
+    (prot/extract heap)
+    (println (prot/to-vec heap))
     #_(println (size heap))
-    (extract heap)
-    (println (to-vec heap))
-    (extract heap)
-    (println (to-vec heap))
-    (extract heap)
-    (println (to-vec heap))))
+    (prot/extract heap)
+    (println (prot/to-vec heap))
+    (prot/extract heap)
+    (println (prot/to-vec heap))
+    (prot/extract heap)
+    (println (prot/to-vec heap))))
 
 (defn test-random [n]
   (let [heap (create-bin-heap {:n n})]
     (doseq [i (shuffle (range n))]
-      (insert heap i))
+      (prot/insert heap i))
     (dotimes [_ 10]
-      (extract heap)
+      (prot/extract heap)
       (println (is-heap? {:heap heap})))))
-
-(comment
-  (let [heap (create-bin-heap max-comp 7)]
-    (doseq [i [100 19 36 17 0]]
-      (insert heap i))
-    (println (to-vec heap))
-    (extract heap)
-    (println (to-vec heap))
-    (delete heap 17)
-    (println (to-vec heap))
-    (delete heap 19)
-    (to-vec heap))
-
-  (let [heap (create-bin-heap {:n 100})]
-    (doseq [i (shuffle (range 100))]
-      (insert heap i))
-    (is-heap? heap max-comp)))
