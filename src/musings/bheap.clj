@@ -25,7 +25,7 @@
   (.add arr elem)
   (dec (.size arr)))
 
-(defn aswap! [^ArrayList arr i j]
+(defn aswap! [^ArrayList arr ^Integer i ^Integer j]
   (let [a-i (.get arr i)]
     (.set arr i (.get arr j))
     (.set arr j a-i)))
@@ -43,6 +43,32 @@
         (= i n)               nil
         (= (.get arr i) elem) i
         :else                 (recur (inc i))))))
+
+(defn preserve-heap! [^ArrayList arr compare-fn elem-i]
+  (let [size (.size arr)]
+    (loop [pos      elem-i
+           parent-i (quot (dec elem-i) 2)]
+      (let [result (compare-fn (.get arr pos) (.get arr parent-i))]
+        ;; check if element violates heap property with parent
+        (if (< result 0)
+          ;; if yes swap and recur from there
+          (do
+            (aswap! arr pos parent-i)
+            (recur parent-i (quot (dec parent-i) 2)))
+
+          ;; else check if swapped element violates heap property
+          ;; with children and recur
+          (let [l-child (inc (* pos 2))
+                r-child (inc l-child)]
+            (if (and (< l-child size)
+                     (pos? (compare-fn (.get arr elem-i)
+                                       (.get arr l-child))))
+              (do (aswap! arr elem-i l-child)
+                  (recur l-child pos))
+              (when (and (< r-child size)
+                         (pos? (compare-fn (.get arr elem-i)
+                                           (.get arr r-child))))
+                (recur r-child pos)))))))))
 
 (deftype BinHeap [compare-fn ^ArrayList arr]
   BHeapProtocol
@@ -63,50 +89,36 @@
         ;; swap root with last element
         (aswap! arr 0 last-i)
         (.remove arr last-i)
-        ;; preserve heap property for root recursively
-        (loop [root (.get arr 0)]
-          (let [left-result (compare-fn root (.get arr 1))]
-            (cond
-              (>= left-result 0) (do (aswap! arr 0 1) (recur (.get arr 0)))
-              :else
-              (let [right-result (compare-fn root (.get arr 2))]
-                (when (>= right-result 0)
-                  (aswap! arr 0 2)
-                  (recur (.get arr 0)))))))
+        (case last-i
+          ;; nothing to be done if extracting from 1 or 2 element heap
+          (0 1)  nil
+          ;; might need swapping if extracting from 3 element heap
+          2      (let [res (compare-fn (.get arr 0) (.get arr 1))]
+                   (when (pos? res)
+                     (aswap! arr 0 1)))
+
+          ;; otherwise preserve heap property for root recursively
+          (loop []
+            (let [root        (.get arr 0)
+                  left-result (compare-fn root (.get arr 1))]
+              (cond
+                (>= left-result 0) (do (aswap! arr 0 1) (recur))
+                :else
+                (let [right-result (compare-fn root (.get arr 2))]
+                  (when (>= right-result 0)
+                    (aswap! arr 0 2)
+                    (recur)))))))
         element)))
 
   (delete [_this element]
     (when-not (.isEmpty arr)
       (let [elem-i (find-elem arr element)
             last-i (dec (.size arr))]
-      ;; swap found element with the last
+        ;; swap found element with the last
         (aswap! arr elem-i last-i)
         (.remove arr last-i)
-        (let [size (.size arr)]
-          (when (not= elem-i last-i)
-          ;; check if swapped element violates heap property with parent
-            (loop [pos      elem-i
-                   parent-i (quot (dec elem-i) 2)]
-              (let [result (compare-fn (.get arr pos) (.get arr parent-i))]
-                (if (< result 0)
-                ;; if yes swap and recur from there
-                  (do
-                    (aswap! arr pos parent-i)
-                    (recur parent-i (quot (dec parent-i) 2)))
-
-                ;; else check if swapped element violates heap property
-                ;; with children and recur
-                  (let [l-child (inc (* pos 2))
-                        r-child (inc l-child)]
-                    (if (and (< l-child size)
-                             (pos? (compare-fn (.get arr elem-i)
-                                               (.get arr l-child))))
-                      (do (aswap! arr elem-i l-child)
-                          (recur l-child pos))
-                      (when (and (< r-child size)
-                                 (pos? (compare-fn (.get arr elem-i)
-                                                   (.get arr r-child))))
-                        (recur r-child pos))))))))))))
+        (when-not (= elem-i last-i)
+          (preserve-heap! arr compare-fn elem-i)))))
 
   (update-elem [this _element _updater] this)
 
@@ -115,7 +127,8 @@
   (size [_this] (.size arr)))
 
 
-(defn create-bin-heap [comparator n]
+(defn create-bin-heap [{:keys [comparator n]
+                        :or {comparator compare}}]
   (BinHeap. comparator (ArrayList. n)))
 
 
@@ -124,7 +137,8 @@
                       (filter nil? v)))
      v))
 
-(defn is-heap? [heap compare-fn]
+(defn is-heap? [{:keys [heap compare-fn]
+                 :or {compare-fn compare}}]
   (let [v (to-vec heap)]
     (and (is-leftmost-filled? v)
          (let [fv (filter some? v)]
@@ -139,6 +153,31 @@
                  :else     (recur (dec i)))))))))
 
 
+(defn test-run []
+  (let [heap (create-bin-heap {:n 7})]
+    (doseq [i [100 19 36 17 0]]
+      (insert heap i))
+    (println (to-vec heap))
+    (extract heap)
+    (println (to-vec heap))
+    (extract heap)
+    (println (to-vec heap))
+    #_(println (size heap))
+    (extract heap)
+    (println (to-vec heap))
+    (extract heap)
+    (println (to-vec heap))
+    (extract heap)
+    (println (to-vec heap))))
+
+(defn test-random [n]
+  (let [heap (create-bin-heap {:n n})]
+    (doseq [i (shuffle (range n))]
+      (insert heap i))
+    (dotimes [_ 10]
+      (extract heap)
+      (println (is-heap? {:heap heap})))))
+
 (comment
   (let [heap (create-bin-heap max-comp 7)]
     (doseq [i [100 19 36 17 0]]
@@ -151,7 +190,7 @@
     (delete heap 19)
     (to-vec heap))
 
-  (let [heap (create-bin-heap max-comp 100)]
+  (let [heap (create-bin-heap {:n 100})]
     (doseq [i (shuffle (range 100))]
       (insert heap i))
     (is-heap? heap max-comp)))
