@@ -7,4 +7,5 @@
   :main ^:skip-aot musings.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}
-             :dev {:dependencies [[org.clojars.czan/stateful-check "0.4.4"]]}})
+             :dev {:dependencies [[org.clojars.czan/stateful-check "0.4.4"]
+                                  [criterium "0.4.6"]]}})

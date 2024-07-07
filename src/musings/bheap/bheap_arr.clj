@@ -12,12 +12,6 @@
     (.set arr i (.get arr j))
     (.set arr j a-i)))
 
-(defn max-comp [a b]
-  (cond
-    (= a b) 0
-    (< a b) (- 1)
-    :else   1))
-
 (defn find-elem [^ArrayList arr elem compare-fn]
   (let [n (.size arr)]
     (loop [i 0]
@@ -126,7 +120,17 @@
             (when-not (= elem-i last-i)
               (preserve-heap! arr compare-fn elem-i)))))))
 
-  (update-elem [this _element _updater] this)
+  (update-elem [this element updater]
+    (locking arr
+      (when-not (.isEmpty arr)
+        (let [elem-i (find-elem arr element compare-fn)]
+          (when (some? elem-i)
+            (let [old-v (.get arr elem-i)
+                  new-v (updater (.get arr elem-i))]
+              (.set arr elem-i new-v)
+              (if (pos? (compare-fn new-v old-v))
+                (down-heap! arr compare-fn elem-i)
+                (up-heap! arr compare-fn elem-i))))))))
 
   (to-vec [_this] (locking arr (vec arr)))
 

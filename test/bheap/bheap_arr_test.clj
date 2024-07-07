@@ -24,10 +24,17 @@
    :command       #(bheap/delete system-under-test %)
    :postcondition (fn [_ _ _ _] (bheap-arr/is-heap? {:heap system-under-test}))})
 
+(def update-heap-spec
+  {:args          (fn [_state] [gen/nat])
+   :command       #(let [op (rand-nth [inc dec])]
+                     (bheap/update-elem system-under-test % op))
+   :postcondition (fn [_ _ _ _] (bheap-arr/is-heap? {:heap system-under-test}))})
+
 (def heap-spec
   {:commands {:insert  #'insert-heap-spec
               :extract #'extract-heap-spec
-              :delete  #'delete-heap-spec}
+              :delete  #'delete-heap-spec
+              :update  #'update-heap-spec}
    :setup    #(bheap/clear system-under-test)})
 
 
