@@ -18,4 +18,10 @@
     "Returns the size of the underlying ArrayList")
 
   (to-vec [heap]
-    "Returns the backing array as a vector"))
+    "Returns the backing array as a vector")
+
+  (has? [heap element]
+    "Returns true if heap contains element")
+
+  (clear [heap]
+    "Clears the heap"))
