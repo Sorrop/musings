@@ -9,4 +9,5 @@
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}
              :dev {:dependencies [[org.clojars.czan/stateful-check "0.4.4"]
+                                  [org.clojure/math.combinatorics "0.3.0"]
                                   [criterium "0.4.6"]]}})

@@ -348,66 +348,6 @@
         (println e)))
     (recur)))
 
-(defn task-fn [id]
-  (fn []
-    (let [started (java.util.Date.)
-          sleep (rand-int 10000)]
-      (println (format "Executing %s" id))
-      (Thread/sleep sleep)
-      {:result      id
-       :sleep       sleep
-       :started-at  started
-       :finished-at (java.util.Date.)})))
-
-(def dag-1
-  (->dag [[:a {:id    :a
-               :state :pending}]
-          [:b {:id    :b
-               :state :pending}]
-          [:c {:id    :c
-               :state :pending}]
-          [:d {:id    :d
-               :state :pending}]]
-         [[:a :b]
-          [:a :c]
-          [:c :d]
-          [:b :d]]))
-
-(def dag-2
-  (->dag [[:e {:id    :e
-               :state :pending}]
-          [:f {:id    :f
-               :state :pending}]
-          [:g {:id    :g
-               :state :pending}]
-          [:h {:id    :h
-               :state :pending}]
-          [:i {:id    :i
-               :state :pending}]]
-         [[:e :f]
-          [:e :g]
-          [:g :h]
-          [:f :h]]))
-
-(def db
-  (atom
-   {:tasks
-    {:a {:f (task-fn :a)}
-     :b {:f (task-fn :b)}
-     :c {:f (task-fn :c)}
-     :d {:f (task-fn :d)}
-     :e {:f (task-fn :e)}
-     :f {:f (task-fn :f)}
-     :g {:f (task-fn :g)}
-     :h {:f (task-fn :h)}
-     :i {:f (task-fn :i)}}
-    :executions
-    {1 dag-1
-     2 dag-2}}))
-
-(def executions
-  (atom [{:id 1} {:id 2}]))
-
 
 (comment
   (dotimes [_ 2]
