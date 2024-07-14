@@ -20,11 +20,11 @@
 (defn pending? [task]
   (= (:state task) :pending))
 
-(defn running? [task]
-  (= (:state task) :running))
-
 (defn completed? [task]
   (= (:state task) :completed))
+
+(defn failed? [task]
+  (= (:state task) :failed))
 
 (defn nodes->attrs [g nodes]
   (map #(uber/attrs g %) nodes))
@@ -38,11 +38,6 @@
   (->> (uber/nodes g)
        (nodes->attrs g)
        (group-by :state)))
-
-(defn running-nodes [g]
-  (->> (uber/nodes g)
-       (nodes->attrs g)
-       (filterv running?)))
 
 (defn get-predecessors [g n]
   (mapv #(uber/attrs g %) (uber/predecessors* g n)))
@@ -74,67 +69,69 @@
     (when-not (empty? pending)
       (pick graph pending))))
 
-(defn mark-downstream-failures [{:keys [id] :as task} g]
-  (let [dependents (all-dependents g id)
+(defn mark-downstream-failures [root-id g]
+  (let [dependents (all-dependents g root-id)
         full-nodes (nodes->attrs g dependents)]
     (reduce (fn [acc {:keys [id] :as node}]
               (uber/set-attrs acc id (assoc node :state :skipped)))
             g
             full-nodes)))
 
-(defn execute [state graph-id task]
-  (let [{:keys [f id]}  task
-        result          (try
-                          {:state  :completed
-                           :result (f)}
-                          (catch Throwable t
-                            {:state :failed
-                             :error t}))
-        new-state (p/acquire-resource {:pool state :id graph-id})
-        {:keys [graph]} new-state]
-    (if (= (:state result) :failed)
-      (->> (merge task result)
-           (uber/set-attrs graph id)
-           (mark-downstream-failures task)
-           (assoc new-state :graph)
-           (p/release-resource state))
-      (->> (merge task result)
-           (uber/set-attrs graph id)
-           (assoc new-state :graph)
-           (p/release-resource state)))))
+(defn execution-result->dag [graph task result]
+  (let [id      (:id task)
+        updated (merge task result)]
+    (cond->> updated
+      :update-node-state (uber/set-attrs graph id)
+      (failed? result)   (mark-downstream-failures id))))
 
-(defn finished? [g]
+(defn safe-run [f]
+  (try
+    {:state  :completed
+     :result (f)}
+    (catch Throwable t
+      {:state :failed
+       :error t})))
+
+(defn execute [{:keys [db executions graph-id task]}]
+  (let [{:keys [f id]} task
+        result         (safe-run f)
+        exec           (p/acquire-resource {:pool executions :id graph-id})
+        graph          (get @db graph-id)
+        new-graph      (execution-result->dag graph task result)]
+    (swap! db assoc graph-id new-graph)
+    (p/release-resource executions exec)))
+
+(defn dag-finished? [g]
   (let [{:keys [pending running]} (nodes-by-state g)]
     (= 0
        (count pending)
        (count running))))
 
-(defn work [{:keys [state]}]
-  (when-let [st (p/try-acquire {:pool state})]
-    (let [{:keys [id graph]}   st
-          task                 (next-task graph)
-          task-id              (:id task)]
+(defn work [{:keys [db executions]}]
+  (when-let [{:keys [id] :as execution} (p/try-acquire {:pool executions})]
+    (let [graph   (get @db id)
+          task    (next-task graph)
+          task-id (:id task)]
       (cond
         (some? task)
         (do
           (->> (assoc task :state :running)
                (uber/set-attrs graph task-id)
-               (assoc st :graph)
-               (p/release-resource state))
-          (execute state id task))
+               (swap! db assoc id))
+          (p/release-resource executions execution)
+          (execute {:db         db
+                    :executions executions
+                    :graph-id   id
+                    :task       task}))
 
-        (finished? graph)
-            ;; what to do with finished execution?
-        (->> (assoc st :graph graph)
-             (p/release-resource state))
-        #_(uber/remove-all g)
+        (dag-finished? graph)
+        (swap! db assoc id graph)
 
         :else
-        (->> (assoc st :graph graph)
-             (p/release-resource state))))))
+        (p/release-resource executions execution)))))
 
 (defn worker
-  [{:keys [state sleep results]
+  [{:keys [executions sleep db]
     :or   {sleep 1000}
     :as   params}]
   (loop []
@@ -145,40 +142,63 @@
         (println e)))
     (recur)))
 
-(def dag
+(defn task-fn [id]
+  (fn []
+    (let [started (java.util.Date.)
+          sleep (rand-int 10000)]
+      (println (format "Executing %s" id))
+      (Thread/sleep sleep)
+      {:result      id
+       :sleep       sleep
+       :started-at  started
+       :finished-at (java.util.Date.)})))
+
+(def dag-1
   (->dag [[:a {:id    :a
-               :f     #(do (println "Executing a")
-                           (Thread/sleep 6000)
-                           {:a 1})
+               :f     (task-fn :a)
                :state :pending}]
           [:b {:id    :b
-               :f     #(do (println "Executing b")
-                           (Thread/sleep 3000)
-                           {:b 2})
+               :f     (task-fn :b)
                :state :pending}]
           [:c {:id    :c
-               :f     #(do (println "Executing c")
-                           (/ 0)
-                           (Thread/sleep 4000)
-                           {:c 3})
+               :f     (task-fn :c)
                :state :pending}]
           [:d {:id    :d
-               :f     #(do (println "Executing d")
-                           (Thread/sleep 2000)
-                           {:d 4})
+               :f     (task-fn :d)
                :state :pending}]]
          [[:a :b]
           [:a :c]
           [:c :d]
           [:b :d]]))
 
-(def state
-  (let [create-graph (fn []
-                       {:graph-id 1
-                        :graph   dag})]
-    (p/resource-pool 1 create-graph)))
+(def dag-2
+  (->dag [[:e {:id    :e
+               :f     (task-fn :e)
+               :state :pending}]
+          [:f {:id    :f
+               :f     (task-fn :f)
+               :state :pending}]
+          [:g {:id    :g
+               :f     (task-fn :g)
+               :state :pending}]
+          [:h {:id    :h
+               :f     (task-fn :h)
+               :state :pending}]]
+         [[:e :f]
+          [:e :g]
+          [:g :h]
+          [:f :h]]))
+
+(def db
+  (atom
+   {1 dag-1
+    2 dag-2}))
+
+(def executions
+  (atom [{:id 1} {:id 2}]))
 
 
 (comment
   (dotimes [_ 2]
-    (future (worker {:state state}))))
+    (future (worker {:executions executions
+                     :db         db}))))
