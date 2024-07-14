@@ -3,18 +3,35 @@
 (defn resource-pool [n create-fn]
   (atom (into [] (repeatedly n create-fn))))
 
-(defn acquire-resource [pool]
-  (loop [[r & rs :as all] @pool]
-    (if (and (some? r)
-             (compare-and-set! pool all rs))
-      r
-      (recur @pool))))
+(defn select-id [pool id]
+  (if (some? id)
+    (loop [[r & rs] pool
+           result {:selected nil
+                   :rest     []
+                   :all      pool}]
+      (if (some? r)
+        (if (= (:id r) id)
+          (-> (assoc result :selected r)
+              (update :rest (comp vec concat) rs))
+          (recur rs (update result :rest conj r)))
+        (update result :rest (comp vec concat) rs)))
+    {:selected (first pool)
+     :rest     (vec (rest pool))
+     :all      pool}))
 
-(defn try-acquire [pool]
-  (let [[r & rs :as all] @pool]
-    (when (and (some? r)
-             (compare-and-set! pool all rs))
-      r)))
+(defn try-acquire [{:keys [pool id]}]
+  (let [{:keys [selected rest all]} (select-id @pool id)]
+    (when (and (some? selected)
+               (compare-and-set! pool all rest))
+      selected)))
+
+(defn acquire-resource [params]
+  (loop []
+    (if-let [r (try-acquire params)]
+      r
+      (recur))))
+
+
 
 (defn release-resource [pool r]
   (swap! pool conj r))
@@ -23,7 +40,7 @@
   (let [p       (resource-pool n 1)
         results (atom [])
         f       (fn [i]
-                  (let [b (acquire-resource p)]
+                  (let [b (acquire-resource {:pool p})]
                     (aset b 0 (byte i))
                     (swap! results conj [i])
                     (release-resource p b)))]

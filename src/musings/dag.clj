@@ -17,13 +17,22 @@
    }
   )
 
+(defn pending? [task]
+  (= (:state task) :pending))
+
+(defn running? [task]
+  (= (:state task) :running))
+
+(defn completed? [task]
+  (= (:state task) :completed))
+
 (defn nodes->attrs [g nodes]
   (map #(uber/attrs g %) nodes))
 
 (defn pending-nodes [g]
   (->> (alg/topsort g)
        (nodes->attrs g)
-       (filterv #(= (:state %) :pending))))
+       (filterv pending?)))
 
 (defn nodes-by-state [g]
   (->> (uber/nodes g)
@@ -33,7 +42,7 @@
 (defn running-nodes [g]
   (->> (uber/nodes g)
        (nodes->attrs g)
-       (filterv #(= (:state %) :running))))
+       (filterv running?)))
 
 (defn get-predecessors [g n]
   (mapv #(uber/attrs g %) (uber/predecessors* g n)))
@@ -50,7 +59,7 @@
 
 (defn satisfied? [nodes]
   (or (empty? nodes)
-      (every? #(= (:state %) :completed) nodes)))
+      (every? completed? nodes)))
 
 (defn pick [g pending]
   (loop [[n & ns] pending]
@@ -68,26 +77,30 @@
 (defn mark-downstream-failures [{:keys [id] :as task} g]
   (let [dependents (all-dependents g id)
         full-nodes (nodes->attrs g dependents)]
-    (println full-nodes)
     (reduce (fn [acc {:keys [id] :as node}]
               (uber/set-attrs acc id (assoc node :state :skipped)))
             g
             full-nodes)))
 
-(defn execute [state task]
-  (let [{:keys [f id]} task
-        result (try
-                 {:state :completed
-                  :result (f)}
-                 (catch Throwable t
-                   {:state :failed
-                    :error  t}))
-        g (p/acquire-resource state)]
+(defn execute [state graph-id task]
+  (let [{:keys [f id]}  task
+        result          (try
+                          {:state  :completed
+                           :result (f)}
+                          (catch Throwable t
+                            {:state :failed
+                             :error t}))
+        new-state (p/acquire-resource {:pool state :id graph-id})
+        {:keys [graph]} new-state]
     (if (= (:state result) :failed)
-      (->> (uber/set-attrs g id (merge task result))
+      (->> (merge task result)
+           (uber/set-attrs graph id)
            (mark-downstream-failures task)
+           (assoc new-state :graph)
            (p/release-resource state))
-      (->> (uber/set-attrs g id (merge task result))
+      (->> (merge task result)
+           (uber/set-attrs graph id)
+           (assoc new-state :graph)
            (p/release-resource state)))))
 
 (defn finished? [g]
@@ -96,26 +109,37 @@
        (count pending)
        (count running))))
 
+(defn work [{:keys [state]}]
+  (when-let [st (p/try-acquire {:pool state})]
+    (let [{:keys [id graph]}   st
+          task                 (next-task graph)
+          task-id              (:id task)]
+      (cond
+        (some? task)
+        (do
+          (->> (assoc task :state :running)
+               (uber/set-attrs graph task-id)
+               (assoc st :graph)
+               (p/release-resource state))
+          (execute state id task))
+
+        (finished? graph)
+            ;; what to do with finished execution?
+        (->> (assoc st :graph graph)
+             (p/release-resource state))
+        #_(uber/remove-all g)
+
+        :else
+        (->> (assoc st :graph graph)
+             (p/release-resource state))))))
+
 (defn worker
   [{:keys [state sleep results]
-    :or   {sleep 1000}}]
+    :or   {sleep 1000}
+    :as   params}]
   (loop []
     (try
-      (when-let [g (p/try-acquire state)]
-        (let [task (next-task g)
-              id   (:id task)]
-          (cond
-            (some? task)
-            (do
-              (p/release-resource state (uber/set-attrs g id (assoc task :state :running)))
-              (execute state task))
-
-            (finished? g)
-            (p/release-resource state g)
-            #_(uber/remove-all g)
-
-            :else
-            (p/release-resource state g))))
+      (work params)
       (Thread/sleep sleep)
       (catch Exception e
         (println e)))
@@ -150,7 +174,8 @@
 
 (def state
   (let [create-graph (fn []
-                       dag)]
+                       {:graph-id 1
+                        :graph   dag})]
     (p/resource-pool 1 create-graph)))
 
 
