@@ -123,4 +123,20 @@
     :i {:f (task-fn :i)}}
    :executions
    {1 dag-1
-    2 dag-2}})
+    2 dag-2}}
+
+  ;; TODO: Convert this to test
+  ;;       checks if every task started and finished after its predecessors
+  (for [[_ exec] (:executions @db)]
+    (reduce (fn [acc node]
+              (let [node-attrs    (ubergraph.core/attrs exec node)
+                    preds         (compute/get-predecessors exec node)
+                    node-started  (:started-at (:result node-attrs))
+                    node-finished (:finished-at (:result node-attrs))]
+                (conj acc (every? #(and (.before (:started-at (:result %))
+                                                 node-started)
+                                        (.before (:finished-at (:result %))
+                                                 node-finished))
+                                  preds))))
+            []
+            (ubergraph.core/nodes exec))))
