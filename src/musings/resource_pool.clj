@@ -37,14 +37,14 @@
   (swap! pool conj r))
 
 (defn test-it [n]
-  (let [p       (resource-pool n 1)
+  (let [p       (resource-pool 1 #(byte-array n))
         results (atom [])
         f       (fn [i]
                   (let [b (acquire-resource {:pool p})]
-                    (aset b 0 (byte i))
+                    (aset b i (byte i))
                     (swap! results conj [i])
                     (release-resource p b)))]
-    (doseq [i (range (inc n))]
+    (doseq [i (range n)]
       (future (f i)))
     (Thread/sleep 1000)
     {:pool    @p
